@@ -1,0 +1,44 @@
+name: release.yml の門の検査
+# dist #7 の 1: このリポジトリには PR で走る CI が無く、release.yml の門は
+# 「入れたときに手元で測った」だけだった。次に触った人が門を壊しても
+# workflow_dispatch を実際に起動するまで分からない（門3 の変異は**本文を更新しない
+# まま rc=0 で成功を報告する**形なので、起動しても気づけない可能性がある）。
+#
+# **このジョブが緑でも「リリース経路が検証できた」とは読まない。**
+# ハーネスが見るのは run: スクリプトの分岐だけで、本物の gh release edit / create の
+# 振る舞いは未評価（dist #7 の異常の想定 3）。
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/gate-test.yml'
+      - '.github/tests/release_gate_test.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/gate-test.yml'
+      - '.github/tests/release_gate_test.py'
+permissions:
+  contents: read
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # 既存タグの RELEASE_NOTES.md を門へ通すため（ハーネスの最後の 1 件）。
+      # actions/checkout の fetch-tags: true では取れなかった（run 36124188094 で
+      # 「未評価」と出た。PR の merge ref を depth=1 で取るだけでタグの ref は来ない）。
+      # タグごとに深さ 1 で取れば木は揃う。**失敗しても CI は止めない**（|| true）。
+      # 取れなければハーネスが緑にせず「未評価」と出す（規程 §1）。
+      - name: 既存タグを浅く取る（既存タグの検査のため）
+        run: |
+          git fetch --depth=1 origin '+refs/tags/*:refs/tags/*' || true
+          echo "タグ数: $(git tag | wc -l)"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      # pyyaml はここで入れるだけ。配布物のリポジトリに依存ファイルを増やさない
+      # （dist #7 の異常の想定 4）。
+      - run: pip install pyyaml
+      - run: python3 .github/tests/release_gate_test.py
