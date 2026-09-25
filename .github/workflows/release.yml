@@ -12,6 +12,11 @@ on:
         description: 'version without v (例: 0.3.1)'
         required: true
         default: '0.3.1'
+      notes_only:
+        description: '本文(RELEASE_NOTES.md)だけを更新する。添付・タグには触らない'
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: write
 jobs:
@@ -28,10 +33,27 @@ jobs:
             VERSION="${{ github.event.inputs.version }}"
             TAG="v${VERSION}"
             EXTRA="--target ${GITHUB_SHA}"
+            NOTES_ONLY="${{ github.event.inputs.notes_only }}"
           else
             TAG="${GITHUB_REF_NAME}"
             VERSION="${TAG#v}"
             EXTRA=""
+            NOTES_ONLY="false"
+          fi
+          # 本文だけを更新する経路。既存 Release の説明文が RELEASE_NOTES.md と
+          # ずれたときに使う（添付を差し替えずに直したい場合）。
+          # 添付・タグ・target・draft/prerelease フラグには一切触らない。
+          # --clobber の upload を通らないので、アセットの id と時刻が変わらない。
+          if [ "$NOTES_ONLY" = "true" ]; then
+            if [ ! -f RELEASE_NOTES.md ]; then
+              echo "::error::notes_only=true だが RELEASE_NOTES.md が無い"; exit 1
+            fi
+            if ! gh release view "$TAG" >/dev/null 2>&1; then
+              echo "::error::notes_only=true だが Release $TAG が存在しない(新規作成はしない)"; exit 1
+            fi
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+            echo "notes-only: updated the body of $TAG from RELEASE_NOTES.md (assets/tag untouched)"
+            exit 0
           fi
           FILE="SolarForge-${VERSION}.rbz"
           if [ ! -f "$FILE" ]; then
