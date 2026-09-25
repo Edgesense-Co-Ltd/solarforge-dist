@@ -26,10 +26,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # 既存タグの RELEASE_NOTES.md を門へ通すため（ハーネスの最後の 1 件）。
-          # 浅いチェックアウトのままでもハーネスは落ちず「未評価」と出す。
-          fetch-tags: true
+      # 既存タグの RELEASE_NOTES.md を門へ通すため（ハーネスの最後の 1 件）。
+      # actions/checkout の fetch-tags: true では取れなかった（run 36124188094 で
+      # 「未評価」と出た。PR の merge ref を depth=1 で取るだけでタグの ref は来ない）。
+      # タグごとに深さ 1 で取れば木は揃う。**失敗しても CI は止めない**（|| true）。
+      # 取れなければハーネスが緑にせず「未評価」と出す（規程 §1）。
+      - name: 既存タグを浅く取る（既存タグの検査のため）
+        run: |
+          git fetch --depth=1 origin '+refs/tags/*:refs/tags/*' || true
+          echo "タグ数: $(git tag | wc -l)"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
