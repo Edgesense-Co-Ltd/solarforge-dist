@@ -40,6 +40,30 @@ jobs:
             EXTRA=""
             NOTES_ONLY="false"
           fi
+          # 先頭行が対象タグを名乗っているかの判定(門3)。**両経路から使う 1 か所**に置く。
+          # 2 か所に写すと片方だけ直して食い違うので、関数にしてある(dist #7 の 2)。
+          #
+          # 正規表現を使わない case 版。タグの直後は「数字・ドット・接尾辞に使う記号」以外に限る。
+          # ここを *) だけにすると version=0.3.3 が v0.3.39 のノートを通してしまう(接頭辞の取り違え)。
+          # [!0-9.+_-] は -rc1 / +build / _2 も弾く(dist #7 の 3。検査官-solarforge-dist-15 の指摘)。
+          # `（`・半角空白・行末は通る。
+          #
+          # 2 枝目の `# ${TAG}` は v0.3.37 以前の見出し形式(`# v0.3.37 — …`)。過去のタグを
+          # 打ち直せなくしないために通す(dist #7 の 2)。どちらの枝も「先頭行が対象タグを
+          # 名乗っている」という同じ主張で、緩めてはいない。
+          notes_first_line_names_tag() {
+            case "$(head -1 RELEASE_NOTES.md)" in
+              "# SolarForge ${TAG}"|"# SolarForge ${TAG}"[!0-9.+_-]*) return 0 ;;
+              "# ${TAG}"|"# ${TAG}"[!0-9.+_-]*) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+          # 先頭に BOM が付いていると上のどの枝にも一致しない(fail-closed)。安全側だが
+          # 原因が分からないと直せないので、メッセージで BOM に触れる(dist #7 の 4)。
+          notes_tag_error() {
+            echo "::error::RELEASE_NOTES.md の先頭行が ${TAG} を名乗っていない(空/別版/別ファイル、または先頭に BOM が付いている可能性)"
+          }
+
           # 本文だけを更新する経路。既存 Release の説明文が RELEASE_NOTES.md と
           # ずれたときに使う（添付を差し替えずに直したい場合）。
           # 添付・タグ・target・draft/prerelease フラグには一切触らない。
@@ -51,14 +75,8 @@ jobs:
             if ! gh release view "$TAG" >/dev/null 2>&1; then
               echo "::error::notes_only=true だが Release $TAG が存在しない(新規作成はしない)"; exit 1
             fi
-            # 門3: 先頭行が対象タグを名乗っていること。空・別版・別ファイルを1つで弾く
-            # (検査官-solarforge-dist-15 の非ブロッキング 2。正規表現を使わない case 版)。
-            # タグの直後は「数字とドット以外」に限る。ここを *) だけにすると
-            # version=0.3.3 が v0.3.39 のノートを通してしまう(接頭辞の取り違え)。
-            case "$(head -1 RELEASE_NOTES.md)" in
-              "# SolarForge ${TAG}"|"# SolarForge ${TAG}"[!0-9.]*) ;;
-              *) echo "::error::RELEASE_NOTES.md の先頭行が ${TAG} を名乗っていない(空/別版/別ファイル)"; exit 1 ;;
-            esac
+            # 門3: 先頭行が対象タグを名乗っていること。空・別版・別ファイル・BOM を1つで弾く
+            if ! notes_first_line_names_tag; then notes_tag_error; exit 1; fi
             gh release edit "$TAG" --notes-file RELEASE_NOTES.md
             echo "notes-only: updated the body of $TAG from RELEASE_NOTES.md (assets/tag untouched)"
             exit 0
@@ -68,7 +86,15 @@ jobs:
             echo "::error::asset $FILE not found at repo root"; ls -la; exit 1
           fi
           # ノートはリポジトリ同梱の RELEASE_NOTES.md を使う(v0.3.3〜。無ければ汎用文)
-          if [ -f RELEASE_NOTES.md ]; then NOTES_ARGS="--notes-file RELEASE_NOTES.md"; else NOTES_ARGS="--notes 導入=本rbzをSketchUp拡張機能マネージャで上書き→再起動、またはプラグイン内「⬆更新」から。"; fi
+          if [ -f RELEASE_NOTES.md ]; then
+            # 門4: 既定経路(タグ push / notes_only=false)にも版の門を掛ける(dist #7 の 2)。
+            # **リリースを実際に打つのはこちら**なので、notes_only 側だけ守られていた状態を直す。
+            # 先頭行が古い版のままなら止める — 直して再実行すれば通る。
+            if ! notes_first_line_names_tag; then notes_tag_error; exit 1; fi
+            NOTES_ARGS="--notes-file RELEASE_NOTES.md"
+          else
+            NOTES_ARGS="--notes 導入=本rbzをSketchUp拡張機能マネージャで上書き→再起動、またはプラグイン内「⬆更新」から。"
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "release $TAG already exists — updating asset and notes"
             gh release upload "$TAG" "$FILE" --clobber
