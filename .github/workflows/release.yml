@@ -51,6 +51,14 @@ jobs:
             if ! gh release view "$TAG" >/dev/null 2>&1; then
               echo "::error::notes_only=true だが Release $TAG が存在しない(新規作成はしない)"; exit 1
             fi
+            # 門3: 先頭行が対象タグを名乗っていること。空・別版・別ファイルを1つで弾く
+            # (検査官-solarforge-dist-15 の非ブロッキング 2。正規表現を使わない case 版)。
+            # タグの直後は「数字とドット以外」に限る。ここを *) だけにすると
+            # version=0.3.3 が v0.3.39 のノートを通してしまう(接頭辞の取り違え)。
+            case "$(head -1 RELEASE_NOTES.md)" in
+              "# SolarForge ${TAG}"|"# SolarForge ${TAG}"[!0-9.]*) ;;
+              *) echo "::error::RELEASE_NOTES.md の先頭行が ${TAG} を名乗っていない(空/別版/別ファイル)"; exit 1 ;;
+            esac
             gh release edit "$TAG" --notes-file RELEASE_NOTES.md
             echo "notes-only: updated the body of $TAG from RELEASE_NOTES.md (assets/tag untouched)"
             exit 0
