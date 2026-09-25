@@ -26,6 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 既存タグの RELEASE_NOTES.md を門へ通すため（ハーネスの最後の 1 件）。
+          # 浅いチェックアウトのままでもハーネスは落ちず「未評価」と出す。
+          fetch-tags: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
